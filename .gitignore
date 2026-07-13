@@ -1,0 +1,26 @@
+# Secrets
+.env
+
+# Data (large files)
+data/
+
+# Experiment outputs
+results/
+
+src/workspace/
+
+# IPC temp files
+ipc/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# IDE
+.idea/
+.vscode/
+
+# Conda/pip
+*.egg-info/
