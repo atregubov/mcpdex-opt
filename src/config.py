@@ -22,6 +22,7 @@ SERVER_SCRIPT = ROOT_DIR / "src" / "mcp_server.py"
 BATCH_FP = Path(os.environ.get("BATCH_FP", ROOT_DIR / "data" / "batch.json"))
 SHORT_DESCRIPTIONS_FP = Path(os.environ.get("SHORT_DESCRIPTIONS_FP", ROOT_DIR / "data" / "short_descriptions.json"))
 INPUT_EXPERIMENT_DATA_FP = Path(os.environ.get("INPUT_EXPERIMENT_DATA_FP", ROOT_DIR / "data" / "input_experiment_data.jsonl"))
+DEFAULT_INPUT_MCPTOX_JSON_FP = Path(os.environ.get("DEFAULT_INPUT_FP", ROOT_DIR / "data" / "response_all.json"))
 OUTPUT_FP = Path(os.environ.get("OUTPUT_FP", ROOT_DIR / "results" / "experiment_results.jsonl"))
 
 # server timeouts

@@ -1,10 +1,10 @@
-# MCP Tool Defense Experiment
+# MCP Tool Defense Experiment (MCP-DEX)
 
 Research experiments measuring LLM susceptibility to implicit tool poisoning attacks via MCP tool descriptions.
 
-## Setup
+## Setup & Reproduce experiments
 
-1. **Install dependencies**:
+0. **Install dependencies**:
 
    With conda:
    ```bash
@@ -15,10 +15,38 @@ Research experiments measuring LLM susceptibility to implicit tool poisoning att
    ```bash
    pip install -r requirements.txt
    ```
+   
+1. **Reproduce experiments**:
 
-2. **Configure** — copy `.env.example` to `.env` and fill in your values (see [Configuration](#configuration) below).
+    To reproduce experiments from `Beyond Prompt Injections: Securing LLM Tool Calling Against Adversarial Metadata` paper
+    - rename `.env.asr_utility_eval_experiment` into `.env` and add LLM endpoint API keys.
+    - from root directory (`mcpdex/`) run:
+        ```bash
+       python ./src/run_batch.py
+       ```
+    - to run OpenAI or Google Gemini update `BATCH_FP="./data/batch_gpt_gemini.json"` and API keys in .env and run `src/run_batch.py` again.
+    - to plot charts run:
+        ```bash
+        python ./src/plot_results.py [OPTIONS]
+        ```
+    
+    To reproduce attacker oprimization experiments:
+    - rename `.env.attacker_optimization_experiment` into `.env` and add LLM endpoint API keys.
+    - from root directory (`mcpdex/`) run:
+        ```bash
+       python ./src/run_batch.py
+       ```
+    
+    To reproduce symmetric oprimization experiments:
+    - modify `./data/symmetric_optimization_inputs.txt` if needed
+    - from root directory (`mcpdex/`) run:
+        ```bash
+       python ./src/run_symmetric_optimization.py
+       ```
 
-3. **Run**:
+2. **Configure manually**: copy `.env.example` to `.env` and fill in your values (see [Configuration](#configuration) below).
+
+3. **Run individual experiment setup**:
    ```bash
    python src/run_experiment.py
    ```
@@ -78,7 +106,7 @@ All options default to the values in `.env` / `src/config.py` and can be overrid
 | `--system-prompt STR` | System prompt text; overrides `SYSTEM_PROMPT` env var |
 | `--short-descriptions-fp PATH` | Pre-shortened descriptions cache JSON; on miss, shortens on the fly |
 | `--use-short-descriptions` | Flag; sets `USE_SHORT_DESCRIPTIONS=True` for this run |
-| `--benign-only` | Flag; sets `BENIGN_ONLY=True` — excludes poisoned tools from the server |
+| `--benign-only` | Flag; sets `BENIGN_ONLY=True` - excludes poisoned tools from the server |
 | `--parallel` | Flag; runs all system prompt variants concurrently (default: on when `RUN_IN_PARALLEL=True`) |
 | `--optimization` | Flag; enables adversarial description optimization after each baseline run |
 | `--n-steps N` | Number of optimization iterations per experiment entry (default: `OPTIMIZATION_N_STEPS`) |
@@ -103,7 +131,7 @@ python src/run_experiment.py --use-short-descriptions --optimization --n-steps 5
 
 ### All models (`run_batch.py`)
 
-Runs the full experiment matrix — all models × all system prompt variants × short descriptions on/off × benign/poison — and writes one output file per combination plus an aggregate counts summary:
+Runs the full experiment matrix - all models × all system prompt variants × short descriptions on/off × benign/poison - and writes one output file per combination plus an aggregate counts summary:
 
 ```bash
 python src/run_batch.py [OPTIONS]
@@ -127,13 +155,13 @@ The batch configuration file has the following structure:
 }
 ```
 
-Set `"n_optimization_steps"` to a positive integer to enable the adversarial description optimizer (forces sequential mode). Optimization only ever runs against the poison variant — it is automatically skipped for `"benign"` entries in `benign_poison_variations`, since there is no poisoned tool to optimize once it's excluded.
+Set `"n_optimization_steps"` to a positive integer to enable the adversarial description optimizer (forces sequential mode). Optimization only ever runs against the poison variant - it is automatically skipped for `"benign"` entries in `benign_poison_variations`, since there is no poisoned tool to optimize once it's excluded.
 
 Output files are derived from `OUTPUT_FP` with a suffix encoding the combination, e.g. `results/experiment_results_gpt-4.1_p0_short_poison.jsonl`. An aggregate `_all_counts.json` is also written with per-combination label frequencies.
 
 ## Plotting Results
 
-Generate bar charts from the aggregate counts file produced by `run_batch.py`:
+`plot_results.py` generates all charts (as PDF files) from the aggregate counts file produced by `run_batch.py`, plus (optionally) from the adversarial description optimizer's output:
 
 ```bash
 python src/plot_results.py [OPTIONS]
@@ -142,19 +170,81 @@ python src/plot_results.py [OPTIONS]
 | Option | Description |
 |--------|-------------|
 | `--input-fp PATH` | `_all_counts.json` file from `run_batch.py` (default: derived from `OUTPUT_FP`) |
-| `--output-dir PATH` | Directory to save plots (default: `results/`) |
+| `--optimization-input-fp PATH` | `_optimization_all_counts.json` file from an optimization run, already containing **both** "full" and "short" data (default: derived from `OUTPUT_FP`) |
+| `--output-dir PATH` | Directory to save plots (default: `plots/`) |
 
-Three PNG files are written to `--output-dir`, each grouped by prompt × description mode (short/full) with one bar per model:
+Before any chart is built, the models/prompts listed in the `EXCLUDED_MODELS`/`EXCLUDED_PROMPTS` constants near the top of `plot_results.py` (both empty by default) are dropped from `--input-fp`'s data - edit those lists to exclude models or system-prompt indices from every chart without touching the input JSON. The three original grouped bar charts (`asr_rate_poison.pdf`, `utility_rate_poison.pdf`, `utility_rate_benign.pdf`) are gated behind the `PLOT_BAR_CHARTS` constant (`False` by default - only useful for a small number of models); set it to `True` to also generate them.
 
-| File | Metric | Tools |
-|------|--------|-------|
-| `success_rate_poison.png` | Adversary success (`success`) | Poisoned |
-| `utility_rate_poison.png` | Correct tool called (`ignored`) | Poisoned |
-| `utility_rate_benign.png` | Correct tool called (`ignored`) | Benign |
+### Preparing merged input data
+
+`run_batch.py`/`run_experiment.py` write one `all_counts.json` per run, and a given run only has real data for the description mode (short/full), benign/poison variant(s), and system prompts it actually served - everything else is left as an untouched, all-zero placeholder (or a `"0"`-indexed prompt that doesn't line up with a combined prompt set). `plot_results.py` expects a single file with real data for everything you want plotted side by side, so if you ran separate batches, merge them first with the matching script in `src/`:
+
+| Script | Combines |
+|--------|----------|
+| `merge_short_and_full_json.py` | Separate short-only and full-only `all_counts.json` runs → one file with both `"short"` and `"full"` populated |
+| `merge_benign_and_poison_json.py` | Separate benign-only and poison-only `all_counts.json` runs → one file with both `"benign"` and `"poison"` populated |
+| `merge_promts_json.py` | Two `all_counts.json` runs covering *different* system prompts (renumbers the second file's prompt indices to continue after the first's, since prompt indices are just positions in each run's own prompt list) |
+| `merge_opt_json.py` | Same idea as `merge_short_and_full_json.py`, but for `_optimization_all_counts.json` files (the `{"summary": ..., "data": ...}` shape `--optimization-input-fp` expects) |
+
+Each takes `--<a>-fp`/`--<b>-fp`/`--output-fp`; run `python src/<script>.py --help` for exact flag names. For example, to produce one optimization file with both description modes for `--optimization-input-fp`:
+
+```bash
+python src/run_experiment.py --optimization --output-fp results/exp_full.jsonl
+python src/run_experiment.py --optimization --use-short-descriptions --output-fp results/exp_short.jsonl
+python src/merge_opt_json.py \
+  --full-fp results/exp_full_optimization_all_counts.json \
+  --short-fp results/exp_short_optimization_all_counts.json \
+  --output-fp results/exp_optimization_all_counts.json
+python src/plot_results.py --optimization-input-fp results/exp_optimization_all_counts.json
+```
+
+If `--optimization-input-fp` doesn't exist, the optimization-derived plots are skipped (with a console message) and only the main charts below are produced.
+
+Prompt/model display names and ordering come from the `PROMPT_ALIASES`, `MODEL_ALIASES`, `HEATMAP_PROMPT_ORDER`, and `OPTIMIZATION_PROMPT_ALIASES`/`OPTIMIZATION_PROMPT_ORDER` dicts near the top of `plot_results.py` - edit those to relabel or reorder prompts/models. Everywhere "short" and "full" descriptions are compared, "short" is blue and "full" is red, and "short" columns/points carry a trailing `*`.
+
+### Main charts (from `--input-fp`)
+
+| File | Description |
+|------|-------------|
+| `asr_rate_poison.pdf`, `utility_rate_poison.pdf`, `utility_rate_benign.pdf` | *(only when `PLOT_BAR_CHARTS = True`)* Grouped bar charts (prompt × short/full on the x-axis, one bar per model) of adversary success (`success`) and utility (`ignored`) rates |
+| `asr_heatmap_poison.pdf`, `utility_heatmap_poison.pdf` | Model × (prompt × description mode) heatmaps of success/utility rate, poisoned tools only |
+| `utility_heatmap_benign.pdf` | Same as above but for benign-only runs; excludes any model listed in `HEATMAP_BENIGN_EXCLUDED_MODELS` |
+| `asr_heatmap_poison_vs_default.pdf`, `utility_heatmap_poison_vs_default.pdf`, `utility_heatmap_benign_vs_default.pdf` | Same three heatmaps, but every cell is the difference from the "Baseline" prompt's **full**-description rate (found by alias lookup in `PROMPT_ALIASES`) instead of the raw rate - the same baseline value is subtracted from both the full and short columns, and the "Baseline" (full) column itself always reads 0 |
+| `utility_diff_benign_poison_heatmap.pdf` | Model × (prompt × description mode) heatmap of (poison − benign) utility rate; models missing real data for either variant anywhere are dropped entirely |
+| `asr_diff_heatmap_poison.pdf`, `utility_diff_heatmap_poison.pdf` | Model × prompt heatmaps of the (full − short) difference in success/utility rate; red = full scored higher, blue = short scored higher |
+| `scatter_utility_vs_success_{model}.pdf` | One scatter plot per model: utility rate vs. success rate, one point per (prompt, short/full) pair (distinct marker per prompt), with standard-error bars on both axes assuming 423 experiments per point (`SCATTER_N_TRIALS`) |
+
+### Optimization charts (from `--optimization-input-fp`)
+
+| File | Description |
+|------|-------------|
+| `asr_heatmap_optimization_poison.pdf` | Model × (prompt × description mode) heatmap of the *maximum* success rate the optimizer found across all steps and experiments |
+| `step_success/step_success_{model}_p{prompt_idx}.pdf` | One line chart per (model, prompt): the running-best (cumulative max so far) success rate by optimization step, for full and short, ± standard error (assuming `TRIALS_PER_EXPERIMENT_STEP` repeats per experiment per step) |
+| `length_vs_asr/length_vs_success_exp{exp_id}.pdf` | One scatter plot per experiment id: poisoned-tool description length (characters) vs. success rate, with a linear trend line and R² |
 
 ## Preprocessing (one-time)
 
-Pre-shorten all tool descriptions to one sentence using Qwen. This step is optional — when `USE_SHORT_DESCRIPTIONS=True` and a description is missing from the cache, the LLM shortens it on the fly. Pre-computing avoids that overhead during experiments:
+### Converting the MCP-Tox dataset (`convert_mcptox_to_input_json.py`)
+
+Converts an MCP-Tox benchmark `response_all.json` export into this repo's internal experiment-entry format (the `id` / `for_client` / `for_server` shape used elsewhere in the pipeline). Only "Template-2" paradigm instances are usable, and only those where the poisoned tool description mentions exactly two of the server's real tool names - that's the heuristic used to tell apart "the tool the query actually wants" from "the tool the poison wants called instead"; instances with any other mention count are skipped.
+
+If `--input-fp` doesn't exist locally, it's automatically downloaded from `--source-url` first.
+
+```bash
+python src/convert_mcptox_to_input_json.py [OPTIONS]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--input-fp PATH` | MCP-Tox `response_all.json` file (default: `response_all.json`); downloaded from `--source-url` if missing |
+| `--source-url URL` | URL to download `--input-fp` from if it doesn't exist locally (default: the MCP-Tox `response_all.json` hosted at anonymous.4open.science) |
+| `--output-fp PATH` | Output JSON file path (default: `all_input_data.json`) |
+
+Output is a single JSON object `{"all": [entry, ...]}` with sequential 1-based `id`s, one per qualifying instance, in source file order.
+
+### Shortening tool descriptions (`shorten_tool_descriptions.py`)
+
+Pre-shorten all tool descriptions to one sentence using Qwen. This step is optional - when `USE_SHORT_DESCRIPTIONS=True` and a description is missing from the cache, the LLM shortens it on the fly. Pre-computing avoids that overhead during experiments:
 
 ```bash
 python src/shorten_tool_descriptions.py
@@ -166,27 +256,30 @@ python src/shorten_tool_descriptions.py --input-fp data/input_experiment_data.js
 
 ```
 src/
-  config.py                      — all config constants, loaded from .env with defaults
-  utils.py                       — shared I/O helpers, experiment data helpers, and evaluation metrics
-  agent_api.py                   — LLM agent wrapper using a unified OpenAI-compatible API (supports OpenAI, Google, Amazon Bedrock, Ollama, etc.)
-  mcp_server.py                  — FastMCP tool server (launched as subprocess per run)
-  run_experiment.py              — single-model orchestrator (entry point)
-  run_batch.py                   — runs full experiment matrix from a batch config file across all models, prompts, and description modes
-  optimization_prompts.py        — system prompt used by the optimizer LLM to propose new poisoned tool descriptions
-  plot_results.py                — generates success and utility rate bar charts from all_counts JSON
-  shorten_tool_descriptions.py   — preprocessing: shorten tool descriptions with Qwen
-  run_optimization_experiment.py — standalone product-description optimization experiment (unrelated to the
+  config.py                      - all config constants, loaded from .env with defaults
+  utils.py                       - shared I/O helpers, experiment data helpers, and evaluation metrics
+  agent_api.py                   - LLM agent wrapper using a unified OpenAI-compatible API (supports OpenAI, Google, Amazon Bedrock, Ollama, etc.)
+  mcp_server.py                  - FastMCP tool server (launched as subprocess per run)
+  run_experiment.py              - single-model orchestrator (entry point)
+  run_batch.py                   - runs full experiment matrix from a batch config file across all models, prompts, and description modes
+  optimization_prompts.py        - system prompt used by the optimizer LLM to propose new poisoned tool descriptions
+  plot_results.py                - generates bar charts, heatmaps, and scatter plots from all_counts JSON and
+                                    (optionally) optimization-results JSON; see Plotting Results below
+  convert_mcptox_to_input_json.py - preprocessing: convert an MCP-Tox response_all.json export into this
+                                    repo's internal experiment-entry input JSON format
+  shorten_tool_descriptions.py   - preprocessing: shorten tool descriptions with Qwen
+  run_symmetric_optimization.py - standalone product-description optimization experiment (unrelated to the
                                     MCP tool-poisoning pipeline above); configured via the OPT_* variables in
                                     src/config.py
 
 data/
-  input_experiment_data.jsonl          — experiment dataset, one JSON entry per line
-  short_descriptions.json              — pre-shortened tool description lookup (original → short)
-  system_prompt.md                     — default system prompt (overridable via SYSTEM_PROMPT env var)
-  batch.json                           — batch configuration: models, prompts, and variation keys used by run_batch.py
+  input_experiment_data.jsonl          - experiment dataset, one JSON entry per line
+  short_descriptions.json              - pre-shortened tool description lookup (original → short)
+  system_prompt.md                     - default system prompt (overridable via SYSTEM_PROMPT env var)
+  batch.json                           - batch configuration: models, prompts, and variation keys used by run_batch.py
 
-results/                         — experiment output files (gitignored)
-ipc/                             — inter-process temp files (gitignored)
+results/                         - experiment output files (gitignored)
+ipc/                             - inter-process temp files (gitignored)
 ```
 
 ## Outcome Labels

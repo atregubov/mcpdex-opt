@@ -42,7 +42,7 @@ def main():
     args = parser.parse_args()
     batch_setup = load_json(args.batch_fp)
 
-    # check if need to run optimization
+    # check if optimization flag is on
     n_optimization_steps = 0
     optimization = False
     parallel = RUN_IN_PARALLEL
@@ -58,6 +58,8 @@ def main():
     all_counts = _init_results_structure(lambda: {label_.value: 0.0 for label_ in ToolCallResult},
                                          batch_setup=batch_setup)
     all_results = _init_results_structure(lambda: [], batch_setup=batch_setup)
+    short_descriptions_fp = Path(batch_setup["short_descriptions_fp"]) if batch_setup[
+                                                                              "short_descriptions_fp"] is not None else None
 
     for short_desc_key in batch_setup["description_shortening_variations"]:  # with and without short descriptions
         for benign_only_key in batch_setup["benign_poison_variations"]:
@@ -69,7 +71,7 @@ def main():
                                 model_names=batch_setup["models"],
                                 system_prompts=batch_setup["system_prompts"],
                                 use_short_descriptions=True if short_desc_key == "short" else False,
-                                short_descriptions_fp=Path(batch_setup["short_descriptions_fp"]),
+                                short_descriptions_fp=short_descriptions_fp,
                                 benign_only=is_benign,
                                 all_results=all_results,
                                 all_counts=all_counts,
